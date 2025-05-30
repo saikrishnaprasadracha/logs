@@ -43,7 +43,11 @@ def handle_mention(event, say, client):
             say(f"⚠️ <@{user}> Could not retrieve the root message: {e}", thread_ts=thread_ts)
             return
     else:
-        say(f"⚠️ <@{user}> Please reply to an alert message thread.", thread_ts=thread_ts)
+        if user_input.lower() in ["null", "none", ""]:
+            available_services = "\n".join(f"- `{name}`" for name in SERVICE_LOG_PATHS.keys())
+            say(f"👋 <@{user}> Here is the list of services you have access to:\n{available_services}", thread_ts=thread_ts)
+        else:
+            say(f"⚠️ <@{user}> Please reply to an alert message thread so I can analyze it.", thread_ts=thread_ts)
         return
 
     try:
