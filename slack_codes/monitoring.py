@@ -41,13 +41,27 @@ def copy_service_log(service_tag):
     src = service_files.get(service_tag)
     if not src:
         print(f"⚠️ No file mapped for service: {service_tag}")
-        return
+        return False
     dest = os.path.join(destination_folder, f"{service_tag}.log")
     try:
         shutil.copy(src, dest)
         print(f"📁 Copied: {src} → {dest}")
+        return True
     except Exception as e:
         print(f"❌ Error copying file for {service_tag}: {e}")
+        return False
+
+# --- ✅ React to message with 👍 ---
+def react_to_message(ts):
+    try:
+        client.reactions_add(
+            channel=CHANNEL_ID,
+            name="thumbsup",
+            timestamp=ts
+        )
+        print("👍 Reacted to message.")
+    except SlackApiError as e:
+        print(f"❌ Failed to react: {e.response['error']}")
 
 # --- 📡 Poll Slack for new alerts and requests ---
 def poll_channel():
@@ -61,12 +75,14 @@ def poll_channel():
             text = message.get("text", "")
 
             if ts > last_ts:
+                success = False
+
                 # 🚨 ALERT pattern
                 if alert_pattern.search(text):
                     service = extract_service(text)
                     print(f"🚨 ALERT detected: {text}")
                     print(f"🔧 Service: {service}")
-                    copy_service_log(service)
+                    success = copy_service_log(service)
 
                 # 📄 LOG REQUEST pattern
                 else:
@@ -75,7 +91,10 @@ def poll_channel():
                         service = match.group(2)
                         print(f"📄 LOG REQUEST detected: {text}")
                         print(f"📂 Requested Service: {service}")
-                        copy_service_log(service)
+                        success = copy_service_log(service)
+
+                if success:
+                    react_to_message(ts)
 
                 last_ts = ts
 
