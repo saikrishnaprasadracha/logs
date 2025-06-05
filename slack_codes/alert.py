@@ -1,0 +1,39 @@
+import random
+from slack_bolt import App
+from slack_bolt.adapter.socket_mode import SocketModeHandler
+
+# Your Slack tokens
+app_token = ""
+slack_bot_token = ""
+
+# Slack channel ID where alerts will be sent
+channel_id = "C08U5B1A64C"
+
+# Initialize Slack app
+app = App(token=slack_bot_token)
+
+# Simulated logs (replace this with real logs if needed)
+logs = [
+    "ERROR: Connection to database failed after 3 attempts. - demo-app-service",
+    "ERROR: Null pointer exception in module user-handler. - user-service",
+]
+
+# Pick a random error or warning
+log_entry = random.choice([log for log in logs if "ERROR" in log or "WARNING" in log])
+
+# Send alert when the script is run
+def send_alert_on_start():
+    app.client.chat_postMessage(channel=channel_id, text=f":rotating_light: *ALERT*: {log_entry}")
+
+# Optional: Respond when mentioned in Slack
+@app.event("app_mention")
+def handle_mention(event, say):
+    say(f":rotating_light: *Manual Alert Triggered*: {log_entry}")
+
+if __name__ == "__main__":
+    # Send alert immediately
+    send_alert_on_start()
+
+    # Start listening for mentions (optional)
+    handler = SocketModeHandler(app, app_token)
+    handler.start()
