@@ -23,6 +23,26 @@ def load_all_properties():
 
     return props
 
+# --- 🛠️ Predefined Commands by Service Tag ---
+PREDEFINED_COMMANDS = {
+    "auth-service": [
+        "cd ..",
+        "ls -l"
+    ],
+    "payment-service": [
+        "whoami",
+        "ls -l"
+    ],
+    "user-service": [
+        "ls",
+        "pwd"
+    ],
+    "demo-app-service": [
+        "ls",
+        "pwd"
+    ]
+}
+
 # --- 📁 Load configurations ---
 config = load_all_properties()
 
@@ -72,7 +92,7 @@ def handle_mention(event, say, client):
         return
 
     try:
-        # Step 1: Extract service name
+        # Step 1: Extract service name from alert
         service_extraction_prompt = f"""
 Extract only the service name from the following alert message.
 
@@ -97,7 +117,7 @@ Output only the service name, nothing else.
         with open(log_path, "r", encoding="utf-8") as f:
             logs = f.read()[-20000:]
 
-        # Step 3: Analyze alert
+        # Step 3: Analyze alert using Gemini
         final_prompt = f"""
 You are a helpful debugging assistant.
 
@@ -125,27 +145,10 @@ Instructions:
         )
         summary = final_response.text.strip()
 
-        # Step 4: Recommended shell commands
-        commands_prompt = f"""
-Based on the alert, user question, and logs analysis, provide up to 2 shell commands that can help to fix or investigate the issue. Return only the commands separated by newline, no explanation.
+        # Step 4: Use predefined commands
+        predefined_cmds = PREDEFINED_COMMANDS.get(service_name, [])
 
-Alert:
-{root_message}
-
-User question:
-{user_input}
-
-Analysis summary:
-{summary}
-"""
-        commands_response = genai_client.models.generate_content(
-            model="gemini-1.5-flash",
-            contents=commands_prompt
-        )
-        commands_text = commands_response.text.strip()
-        commands_list = [cmd.strip() for cmd in commands_text.split("\n") if cmd.strip()]
-
-        # Step 5: Respond with results
+        # Step 5: Respond with explanation and commands
         blocks = [
             {
                 "type": "section",
@@ -155,20 +158,21 @@ Analysis summary:
                 }
             }
         ]
-        if commands_list:
+
+        if predefined_cmds:
             blocks.append({"type": "divider"})
             blocks.append({
                 "type": "section",
-                "text": {"type": "mrkdwn", "text": "*Recommended Actions (click to run):*"}
+                "text": {"type": "mrkdwn", "text": "*Select an action to run (click to execute):*"}
             })
-            for i, cmd in enumerate(commands_list):
-                safe_label = f"Run: {cmd[:40]}{'...' if len(cmd) > 40 else ''}"
+            for i, cmd in enumerate(predefined_cmds):
+                label = f"Run: {cmd[:40]}{'...' if len(cmd) > 40 else ''}"
                 blocks.append({
                     "type": "actions",
                     "elements": [
                         {
                             "type": "button",
-                            "text": {"type": "plain_text", "text": safe_label},
+                            "text": {"type": "plain_text", "text": label},
                             "value": cmd,
                             "action_id": f"run_command_{i}"
                         }
@@ -176,7 +180,7 @@ Analysis summary:
                 })
 
         say(
-            text=f"{membership_msg}\n🧠 <@{user}> here's the analysis and recommended actions:",
+            text=f"{membership_msg}\n🧠 <@{user}> here's the analysis and available actions:",
             thread_ts=thread_ts,
             blocks=blocks
         )
