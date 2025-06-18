@@ -18,10 +18,27 @@ def load_all_properties():
                 key, _, value = line.partition("=")
                 props[key.strip()] = value.strip()
 
-    for file in ["auth.properties", "api.properties", "authz.properties", "logmap.properties"]:
+    for file in ["auth.properties", "api.properties", "authz.properties"]:
         load_file(file)
 
     return props
+
+def load_logmap_properties():
+    logmap_props = {}
+    with open("logmap.properties", "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            key, _, value = line.partition("=")
+            logmap_props[key.strip()] = value.strip()
+    return logmap_props
+
+# Load logmap.properties for SERVICE_LOG_PATHS
+SERVICE_LOG_PATHS = load_logmap_properties()
+
+
+
 
 # --- 🛠️ Predefined Commands by Service Tag ---
 PREDEFINED_COMMANDS = {
@@ -52,10 +69,10 @@ GOOGLE_API_KEY = config["GOOGLE_API_KEY"]
 AUTHORIZED_USERS = set(uid.strip() for uid in config.get("AUTHORIZED_USERS", "").split(",") if uid.strip())
 
 # Extract only service log mappings
-SERVICE_LOG_PATHS = {
-    key: value for key, value in config.items()
-    if key not in {"SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "GOOGLE_API_KEY", "AUTHORIZED_USERS"}
-}
+# SERVICE_LOG_PATHS = {
+#     key: value for key, value in config.items()
+#     if key not in {"SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "GOOGLE_API_KEY", "AUTHORIZED_USERS"}
+# }
 
 # --- 🚀 Init Slack app ---
 app = App(token=SLACK_BOT_TOKEN)
@@ -75,6 +92,78 @@ def handle_mention(event, say, client):
     is_team_member = user in AUTHORIZED_USERS
     membership_msg = f"👋 <@{user}> You are {'part of' if is_team_member else 'NOT part of'} the team."
 
+    # Check for ##execute## pattern
+    execute_pattern = r"##execute##\s*(.+)"
+    execute_match = re.search(execute_pattern, user_input, re.IGNORECASE)
+    
+    if execute_match:
+        # Handle direct command execution
+        cmd_to_execute = execute_match.group(1).strip()
+        
+        if not is_team_member:
+            say(f"{membership_msg}\n❌ <@{user}> Sorry, you do not have permission to execute commands.", thread_ts=thread_ts)
+            return
+        
+        # Get root message if in thread
+        root_message = ""
+        if "thread_ts" in event and event["thread_ts"] != event["ts"]:
+            try:
+                replies = client.conversations_replies(channel=channel_id, ts=event["thread_ts"])
+                root_message = replies["messages"][0]["text"] if replies["messages"] else ""
+            except Exception as e:
+                print(f"Could not retrieve root message: {e}")
+        
+        # Execute the command
+        try:
+            result = subprocess.run(cmd_to_execute, shell=True, capture_output=True, text=True, timeout=30)
+            output = result.stdout.strip() or result.stderr.strip() or "(No output)"
+            max_len = 1500
+            if len(output) > max_len:
+                output = output[:max_len] + "\n...[output truncated]"
+            
+            response_text = f"{membership_msg}\n🖥️ <@{user}> Command `{cmd_to_execute}` executed:\n```\n{output}\n```"
+            
+            # Add root message context if available
+            if root_message:
+                response_text += f"\n\n📄 *Root message context:*\n```{root_message[:500]}{'...' if len(root_message) > 500 else ''}```"
+            
+            say(response_text, thread_ts=thread_ts)
+            
+        except Exception as e:
+            say(f"{membership_msg}\n❌ <@{user}> Failed to execute command `{cmd_to_execute}`: {e}", thread_ts=thread_ts)
+        
+        return
+
+    # Check for ##recommendation## pattern
+    recommendation_pattern = r"##recommendation##\s*(.*)"
+    recommendation_match = re.search(recommendation_pattern, user_input, re.IGNORECASE)
+    
+    if recommendation_match:
+        # Handle recommendation request
+        service_name = recommendation_match.group(1).strip()
+        
+        if service_name:
+            # Show recommendations for specific service
+            if service_name in PREDEFINED_COMMANDS:
+                commands = PREDEFINED_COMMANDS[service_name]
+                cmd_list = "\n".join(f"- `{cmd}`" for cmd in commands)
+                say(f"{membership_msg}\n📋 <@{user}> Recommended commands for `{service_name}`:\n{cmd_list}", thread_ts=thread_ts)
+            else:
+                available_services = ", ".join(f"`{name}`" for name in PREDEFINED_COMMANDS.keys())
+                say(f"{membership_msg}\n⚠️ <@{user}> Service `{service_name}` not found. Available services: {available_services}", thread_ts=thread_ts)
+        else:
+            # Show all recommendations
+            all_recommendations = []
+            for service, commands in PREDEFINED_COMMANDS.items():
+                cmd_list = "\n".join(f"  - `{cmd}`" for cmd in commands)
+                all_recommendations.append(f"**{service}:**\n{cmd_list}")
+            
+            recommendations_text = "\n\n".join(all_recommendations)
+            say(f"{membership_msg}\n📋 <@{user}> All predefined command recommendations:\n\n{recommendations_text}", thread_ts=thread_ts)
+        
+        return
+
+    # Original functionality continues below
     if not user_input or user_input.lower() in ["null", "none"]:
         available_services = "\n".join(f"- `{name}`" for name in SERVICE_LOG_PATHS)
         say(f"{membership_msg}\nHere is the list of services you have access to:\n{available_services}", thread_ts=thread_ts)
